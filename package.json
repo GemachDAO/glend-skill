@@ -1,7 +1,7 @@
 {
   "name": "glend-skill",
   "version": "1.0.0",
-  "description": "Agent skill for GemachDAO Glend-Front-End protocol",
+  "description": "Agent skill for GemachDAO Glend — a DeFi Lend & Borrow platform on EVM chains",
   "license": "MIT",
   "keywords": [
     "agent-skills",
@@ -9,6 +9,10 @@
     "ai-agents",
     "glend",
     "defi",
+    "lending",
+    "borrowing",
+    "viem",
+    "evm",
     "gemachdao"
   ],
   "main": "SKILL.md",
@@ -18,7 +22,7 @@
   ],
   "skill": {
     "name": "glend-skill",
-    "description": "Agent instructions for interacting with the Glend-Front-End (Lend and Borrow Platform) protocol.",
+    "description": "Agent instructions for supplying, borrowing, repaying, and withdrawing on the Glend DeFi lending protocol using viem.",
     "compatibility": "Compatible with all skills.sh agent frameworks"
   }
 }
