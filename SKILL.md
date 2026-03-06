@@ -705,8 +705,8 @@ async function getUnderlying(gTokenAddress: `0x${string}`): Promise<`0x${string}
 Before borrowing, the agent must enable supplied markets as collateral via the Comptroller:
 
 ```typescript
-// Base Comptroller address
-const COMPTROLLER = "0x4a4c2A16b58bD63d37e999fDE50C2eBfE3182D58" as `0x${string}`;
+// Use the Comptroller address from the deployment config
+const COMPTROLLER = BASE_DEPLOYMENT.comptroller;
 
 async function enableCollateral(gTokenAddresses: `0x${string}`[]) {
   const hash = await walletClient.writeContract({
