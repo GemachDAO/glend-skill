@@ -9,7 +9,7 @@ This file provides instructions for AI agents interacting with the **Glend** DeF
 
 ## What is Glend?
 
-Glend is a decentralized lending and borrowing protocol built on EVM-compatible chains. Agents can:
+Glend is a decentralized lending and borrowing protocol (Aave V3 fork) built on EVM-compatible chains. Agents can:
 
 - **Supply / Lend** — deposit assets to earn interest
 - **Borrow** — take loans against supplied collateral
@@ -17,17 +17,91 @@ Glend is a decentralized lending and borrowing protocol built on EVM-compatible 
 - **Withdraw** — reclaim supplied assets (subject to utilization and health factor)
 - **Monitor health** — track collateral ratio and liquidation risk
 
-All on-chain interactions are performed with **viem**.
+All on-chain interactions are performed with **viem**. Contract addresses and chain configuration are pre-loaded — agents only need a wallet private key to start.
+
+- **Glend App**: `https://glendv2.gemach.io`
 
 ---
 
-## Required Environment Variables
+## Environment Variables
 
 ```env
-GLEND_CHAIN_ID=<chain_id>           # e.g. 1 for Ethereum mainnet
-GLEND_POOL_ADDRESS=<address>        # Glend lending pool contract
-GLEND_RPC_URL=<rpc_url>             # EVM JSON-RPC endpoint
 AGENT_PRIVATE_KEY=<private_key>     # Agent wallet private key (never commit!)
+```
+
+The only **required** variable is `AGENT_PRIVATE_KEY`. All contract addresses, RPC endpoints, and chain configuration are embedded below.
+
+Optional overrides (advanced — use only if connecting to a custom deployment):
+
+```env
+GLEND_RPC_URL=<rpc_url>             # Override the default RPC endpoint
+GLEND_POOL_ADDRESS=<address>        # Override the default pool contract
+GLEND_CHAIN_ID=<chain_id>           # Override the default chain ID
+```
+
+---
+
+## Supported Deployments
+
+### Pharos Testnet (default)
+
+| Property | Value |
+|----------|-------|
+| **Chain ID** | `688688` |
+| **RPC URL** | `https://testnet.dplabs-internal.com` |
+| **Block Explorer** | `https://testnet.pharosscan.xyz` |
+| **Native Token** | PHRS |
+| **Pool (Lending Pool)** | `0xe838eb8011297024bca9c09d4e83e2d3cd74b7d0` |
+| **WETHGateway** | `0xa8e550710bf113db6a1b38472118b8d6d5176d12` |
+| **Faucet** | `0x2e9d89d372837f71cb529e5ba85bfbc1785c69cd` |
+
+### Token Registry — Pharos Testnet
+
+| Token | Address | Decimals |
+|-------|---------|----------|
+| USDT | `0x0b00fb1f513e02399667fba50772b21f34c1b5d9` | 6 |
+| USDC | `0x48249feeb47a8453023f702f15cf00206eebdf08` | 6 |
+| BTC | `0xa4a967fc7cf0e9815bf5c2700a055813628b65be` | 8 |
+
+---
+
+## Getting Test Tokens (Faucet)
+
+Before interacting with the lending pool, agents need test tokens. Use the on-chain faucet to mint tokens:
+
+```typescript
+const FAUCET_ABI = [
+  {
+    name: "mint",
+    type: "function",
+    stateMutability: "nonpayable",
+    inputs: [
+      { name: "_asset", type: "address" },
+      { name: "_account", type: "address" },
+      { name: "_amount", type: "uint256" },
+    ],
+    outputs: [],
+  },
+] as const;
+
+const FAUCET_ADDRESS = "0x2e9d89d372837f71cb529e5ba85bfbc1785c69cd" as const;
+
+async function mintTestTokens(
+  tokenAddress: `0x${string}`,
+  amount: bigint,
+) {
+  const hash = await walletClient.writeContract({
+    address: FAUCET_ADDRESS,
+    abi: FAUCET_ABI,
+    functionName: "mint",
+    args: [tokenAddress, account.address, amount],
+  });
+  await publicClient.waitForTransactionReceipt({ hash });
+  console.log(`Minted test tokens — tx: ${hash}`);
+}
+
+// Example: mint 1000 USDC (6 decimals)
+await mintTestTokens("0x48249feeb47a8453023f702f15cf00206eebdf08", parseUnits("1000", 6));
 ```
 
 ---
@@ -139,30 +213,60 @@ import {
   parseUnits,
   formatUnits,
   maxUint256,
+  defineChain,
 } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
-import { mainnet, sepolia, arbitrum, base, optimism } from "viem/chains";
 import type { Chain } from "viem";
 
-const POOL_ADDRESS  = process.env.GLEND_POOL_ADDRESS as `0x${string}`;
-const RPC_URL       = process.env.GLEND_RPC_URL!;
+// ── Pre-configured Glend deployment on Pharos Testnet ──────────────────────
+const pharosTestnet = defineChain({
+  id: 688688,
+  name: "Pharos Testnet",
+  nativeCurrency: { name: "PHRS", symbol: "PHRS", decimals: 18 },
+  rpcUrls: {
+    default: { http: ["https://testnet.dplabs-internal.com"] },
+  },
+  blockExplorers: {
+    default: { name: "Pharos Explorer", url: "https://testnet.pharosscan.xyz" },
+  },
+  testnet: true,
+});
+
+// ── Contract addresses (Pharos Testnet defaults) ───────────────────────────
+const GLEND_DEPLOYMENTS = {
+  688688: {
+    chain: pharosTestnet,
+    pool: "0xe838eb8011297024bca9c09d4e83e2d3cd74b7d0" as `0x${string}`,
+    wethGateway: "0xa8e550710bf113db6a1b38472118b8d6d5176d12" as `0x${string}`,
+    faucet: "0x2e9d89d372837f71cb529e5ba85bfbc1785c69cd" as `0x${string}`,
+    tokens: {
+      USDT:  { address: "0x0b00fb1f513e02399667fba50772b21f34c1b5d9" as `0x${string}`, decimals: 6 },
+      USDC:  { address: "0x48249feeb47a8453023f702f15cf00206eebdf08" as `0x${string}`, decimals: 6 },
+      BTC:   { address: "0xa4a967fc7cf0e9815bf5c2700a055813628b65be" as `0x${string}`, decimals: 8 },
+    },
+  },
+} as const;
+
+// ── Resolve configuration (env overrides or Pharos Testnet defaults) ───────
+const CHAIN_ID      = Number(process.env.GLEND_CHAIN_ID ?? 688688);
+const deployment    = GLEND_DEPLOYMENTS[CHAIN_ID as keyof typeof GLEND_DEPLOYMENTS];
+const chain: Chain  = deployment?.chain ?? pharosTestnet;
+const POOL_ADDRESS  = (process.env.GLEND_POOL_ADDRESS ?? deployment?.pool) as `0x${string}`;
+const RPC_URL       = process.env.GLEND_RPC_URL ?? chain.rpcUrls.default.http[0];
 const PRIVATE_KEY   = process.env.AGENT_PRIVATE_KEY as `0x${string}`;
-const CHAIN_ID      = Number(process.env.GLEND_CHAIN_ID ?? mainnet.id);
 
-// Map well-known chain IDs to viem chain objects; extend as Glend deploys to new networks
-const SUPPORTED_CHAINS: Record<number, Chain> = {
-  [mainnet.id]:   mainnet,
-  [sepolia.id]:   sepolia,
-  [arbitrum.id]:  arbitrum,
-  [base.id]:      base,
-  [optimism.id]:  optimism,
-};
-const chain: Chain = SUPPORTED_CHAINS[CHAIN_ID] ?? mainnet;
+const account       = privateKeyToAccount(PRIVATE_KEY);
+const publicClient  = createPublicClient({ chain, transport: http(RPC_URL) });
+const walletClient  = createWalletClient({ account, chain, transport: http(RPC_URL) });
 
-const account = privateKeyToAccount(PRIVATE_KEY);
-
-const publicClient = createPublicClient({ chain, transport: http(RPC_URL) });
-const walletClient = createWalletClient({ account, chain, transport: http(RPC_URL) });
+// ── Helper: look up a token by symbol ──────────────────────────────────────
+function getToken(symbol: string) {
+  const tokens = deployment?.tokens;
+  if (!tokens) throw new Error(`No token registry for chain ${CHAIN_ID}`);
+  const token = tokens[symbol as keyof typeof tokens];
+  if (!token) throw new Error(`Unknown token: ${symbol}`);
+  return token;
+}
 ```
 
 ### 2 · Approve ERC-20 before supply or repay
@@ -385,24 +489,27 @@ const hash = await walletClient.writeContract(request);
 ## Typical Agent Workflow
 
 ```
-1. getAccountHealth(agentAddress)
+1. mintTestTokens(getToken("USDC").address, parseUnits("1000", 6))
+   → get test USDC from faucet
+
+2. getAccountHealth(agentAddress)
    → confirm healthFactor > 1.5 before borrowing
 
-2. supplyAsset(USDC_ADDRESS, "1000", 6)
+3. supplyAsset(getToken("USDC").address, "1000", 6)
    → deposit 1000 USDC as collateral
 
-3. getAccountHealth(agentAddress)
+4. getAccountHealth(agentAddress)
    → verify collateral registered, check availableBorrowsBase
 
-4. borrowAsset(WETH_ADDRESS, "0.3", 18)
-   → borrow 0.3 WETH against USDC collateral
+5. borrowAsset(getToken("USDT").address, "500", 6)
+   → borrow 500 USDT against USDC collateral
 
-5. [... use borrowed funds ...]
+6. [... use borrowed funds ...]
 
-6. repayDebt(WETH_ADDRESS, "all", 18)
-   → repay full WETH debt
+7. repayDebt(getToken("USDT").address, variableDebtTokenAddress, "all", 6)
+   → repay full USDT debt
 
-7. withdrawAsset(USDC_ADDRESS, "all", 6)
+8. withdrawAsset(getToken("USDC").address, "all", 6)
    → recover USDC collateral
 ```
 
@@ -414,13 +521,15 @@ const hash = await walletClient.writeContract(request);
 |-------|-------------|-----|
 | `CALLER_NOT_IN_WHITELIST` | Protocol access control | Confirm the agent wallet is allowed |
 | `HEALTH_FACTOR_LOWER_THAN_LIQUIDATION_THRESHOLD` | Borrow would make account unsafe | Reduce borrow amount |
-| `NO_ACTIVE_RESERVE` | Wrong token address or chain | Double-check `GLEND_CHAIN_ID` and token address |
-| `TRANSFER_AMOUNT_EXCEEDS_BALANCE` | Insufficient token balance | Fund the agent wallet |
+| `NO_ACTIVE_RESERVE` | Wrong token address or chain | Use addresses from the Token Registry above |
+| `TRANSFER_AMOUNT_EXCEEDS_BALANCE` | Insufficient token balance | Use the faucet to mint test tokens |
 | ERC-20 allowance error | `approve()` not called first | Call `approveToken()` before supply/repay |
 
 ---
 
 ## Resources
 
+- Glend App: `https://glendv2.gemach.io`
+- Pharos Testnet Explorer: `https://testnet.pharosscan.xyz`
 - GemachDAO: `https://github.com/GemachDAO`
 - viem docs: `https://viem.sh`
