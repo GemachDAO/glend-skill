@@ -6,6 +6,7 @@
   "keywords": [
     "agent-skills",
     "skills",
+    "skills-sh",
     "ai-agents",
     "glend",
     "defi",
@@ -21,8 +22,8 @@
     "README.md"
   ],
   "skill": {
-    "name": "glend-skill",
+    "name": "glend",
     "description": "Agent instructions for supplying, borrowing, repaying, and withdrawing on the Glend DeFi lending protocol using viem.",
-    "compatibility": "Compatible with all skills.sh agent frameworks"
+    "compatibility": "Compatible with all skills.sh agent frameworks including Claude Code, Cursor, Copilot, Windsurf, and OpenCode."
   }
 }

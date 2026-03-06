@@ -1,10 +1,15 @@
+---
+name: glend
+description: Agent skill for interacting with the Glend DeFi Lend & Borrow protocol by GemachDAO. Supply, borrow, repay, withdraw assets and monitor account health on EVM chains using viem.
+---
+
 # Glend Agent Skill
 
 This file provides instructions for AI agents interacting with the **Glend** DeFi Lend & Borrow platform by GemachDAO.
 
 ## What is Glend?
 
-Glend is a decentralized lending and borrowing protocol built on EVM-compatible chains. Users (and agents) can:
+Glend is a decentralized lending and borrowing protocol built on EVM-compatible chains. Agents can:
 
 - **Supply / Lend** — deposit assets to earn interest
 - **Borrow** — take loans against supplied collateral
@@ -12,50 +17,18 @@ Glend is a decentralized lending and borrowing protocol built on EVM-compatible 
 - **Withdraw** — reclaim supplied assets (subject to utilization and health factor)
 - **Monitor health** — track collateral ratio and liquidation risk
 
-The frontend is a **Next.js / React** application (Tailwind CSS, NextUI, Zustand state management) and all on-chain interactions are performed with **viem**.
+All on-chain interactions are performed with **viem**.
 
 ---
 
-## Quick Setup
-
-```bash
-# Clone the frontend and install dependencies
-git clone https://github.com/GemachDAO/Glend-Front-End
-cd Glend-Front-End
-npm install
-
-# Copy and fill environment variables
-cp .env.example .env.local
-```
-
-### Required environment variables
+## Required Environment Variables
 
 ```env
-NEXT_PUBLIC_CHAIN_ID=<chain_id>           # e.g. 1 for Ethereum mainnet
-NEXT_PUBLIC_GLEND_POOL_ADDRESS=<address>  # Glend lending pool contract
-NEXT_PUBLIC_RPC_URL=<rpc_url>             # EVM JSON-RPC endpoint
+GLEND_CHAIN_ID=<chain_id>           # e.g. 1 for Ethereum mainnet
+GLEND_POOL_ADDRESS=<address>        # Glend lending pool contract
+GLEND_RPC_URL=<rpc_url>             # EVM JSON-RPC endpoint
+AGENT_PRIVATE_KEY=<private_key>     # Agent wallet private key (never commit!)
 ```
-
-### Development server
-
-```bash
-npm run dev     # starts Next.js on http://localhost:3000
-npm run build   # production build
-npm run start   # serve production build
-npm run lint    # ESLint check
-```
-
----
-
-## Tech Stack
-
-| Layer | Technology |
-|-------|-----------|
-| Framework | Next.js (App Router) |
-| UI | React 18, Tailwind CSS, NextUI |
-| State | Zustand |
-| On-chain | viem |
-| Language | TypeScript |
 
 ---
 
@@ -171,10 +144,10 @@ import { privateKeyToAccount } from "viem/accounts";
 import { mainnet, sepolia, arbitrum, base, optimism } from "viem/chains";
 import type { Chain } from "viem";
 
-const POOL_ADDRESS  = process.env.NEXT_PUBLIC_GLEND_POOL_ADDRESS as `0x${string}`;
-const RPC_URL       = process.env.NEXT_PUBLIC_RPC_URL!;
+const POOL_ADDRESS  = process.env.GLEND_POOL_ADDRESS as `0x${string}`;
+const RPC_URL       = process.env.GLEND_RPC_URL!;
 const PRIVATE_KEY   = process.env.AGENT_PRIVATE_KEY as `0x${string}`;
-const CHAIN_ID      = Number(process.env.NEXT_PUBLIC_CHAIN_ID ?? mainnet.id);
+const CHAIN_ID      = Number(process.env.GLEND_CHAIN_ID ?? mainnet.id);
 
 // Map well-known chain IDs to viem chain objects; extend as Glend deploys to new networks
 const SUPPORTED_CHAINS: Record<number, Chain> = {
@@ -386,18 +359,6 @@ async function getMarketData(tokenAddress: `0x${string}`) {
 
 ---
 
-## Zustand Store (Frontend State)
-
-The frontend manages connection state via a Zustand store in `store/useGlendStore.ts`. When building on top of the frontend code, use these selectors:
-
-```typescript
-import { useGlendStore } from "@/store/useGlendStore";
-
-const { address, supplies, borrows, healthFactor, isConnected } = useGlendStore();
-```
-
----
-
 ## Key Safety Rules for Agents
 
 1. **Always check health factor before borrowing** — keep it above **1.5** to avoid liquidation risk.
@@ -453,7 +414,7 @@ const hash = await walletClient.writeContract(request);
 |-------|-------------|-----|
 | `CALLER_NOT_IN_WHITELIST` | Protocol access control | Confirm the agent wallet is allowed |
 | `HEALTH_FACTOR_LOWER_THAN_LIQUIDATION_THRESHOLD` | Borrow would make account unsafe | Reduce borrow amount |
-| `NO_ACTIVE_RESERVE` | Wrong token address or chain | Double-check `NEXT_PUBLIC_CHAIN_ID` and token address |
+| `NO_ACTIVE_RESERVE` | Wrong token address or chain | Double-check `GLEND_CHAIN_ID` and token address |
 | `TRANSFER_AMOUNT_EXCEEDS_BALANCE` | Insufficient token balance | Fund the agent wallet |
 | ERC-20 allowance error | `approve()` not called first | Call `approveToken()` before supply/repay |
 
@@ -461,7 +422,5 @@ const hash = await walletClient.writeContract(request);
 
 ## Resources
 
-- Glend Frontend: `https://github.com/GemachDAO/Glend-Front-End`
 - GemachDAO: `https://github.com/GemachDAO`
 - viem docs: `https://viem.sh`
-- NextUI docs: `https://nextui.org`
