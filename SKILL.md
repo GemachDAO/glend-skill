@@ -9,7 +9,7 @@ This file provides instructions for AI agents interacting with the **Glend** DeF
 
 ## What is Glend?
 
-Glend is a decentralized lending and borrowing protocol deployed on multiple EVM chains. It runs as an **Aave V3 fork** on Pharos Testnet and as a **Compound fork** (gTokens) on Ethereum and Base. Agents can:
+Glend is a decentralized lending and borrowing protocol deployed on multiple EVM chains. It runs as an **Aave V3 fork** on Pharos Testnet and as a **Compound V2 fork** (gTokens/tTokens) on Ethereum and Base. Agents can:
 
 - **Supply / Lend** — deposit assets to earn interest
 - **Borrow** — take loans against supplied collateral
@@ -68,10 +68,12 @@ GLEND_CHAIN_ID=<chain_id>           # Override the default chain ID
 | Property | Value |
 |----------|-------|
 | **Chain ID** | `1` |
-| **Protocol** | Compound fork (gTokens) |
+| **Protocol** | Compound V2 fork (tTokens) |
 | **RPC URL** | `https://eth.llamarpc.com` |
 | **Block Explorer** | `https://etherscan.io` |
 | **Native Token** | ETH |
+
+> **Note:** The Comptroller (Unitroller) address for Ethereum is needed for `enterMarkets` and `getAccountLiquidity`. If the deployment matches Base, it will be provided via `GLEND_CHAIN_ID=1` once configured. In the meantime, agents can still call `mint`, `borrow`, `repayBorrow`, and `redeemUnderlying` directly on tToken markets.
 
 ### Market Tokens — Ethereum Mainnet
 
@@ -88,7 +90,7 @@ GLEND_CHAIN_ID=<chain_id>           # Override the default chain ID
 | Property | Value |
 |----------|-------|
 | **Chain ID** | `8453` |
-| **Protocol** | Compound fork (gTokens) |
+| **Protocol** | Compound V2 fork (gTokens) |
 | **RPC URL** | `https://mainnet.base.org` |
 | **Block Explorer** | `https://basescan.org` |
 | **Native Token** | ETH |
@@ -295,7 +297,11 @@ const PHAROS_DEPLOYMENT = {
 };
 
 // ── Compound fork deployment (Ethereum Mainnet) ────────────────────────────
+// Note: Comptroller address for ETH not yet provided — market operations
+// (mint, borrow, repayBorrow, redeem) work without it; enterMarkets and
+// getAccountLiquidity require the Comptroller.
 const ETH_DEPLOYMENT = {
+  comptroller: undefined as `0x${string}` | undefined, // TODO: provide ETH Comptroller address
   markets: {
     tUSDT:  { address: "0xfd7E506495fd921a17802Cf523279f01550BE8b6" as `0x${string}` },
     tUSDC:  { address: "0x1C5215F2fb5417BdF9D93339b0caf20222f210f3" as `0x${string}` },
@@ -341,10 +347,24 @@ function getToken(symbol: string) {
 }
 
 // ── Compound helpers ───────────────────────────────────────────────────────
+function getDeployment() {
+  if (CHAIN_ID === 1)    return ETH_DEPLOYMENT;
+  if (CHAIN_ID === 8453) return BASE_DEPLOYMENT;
+  throw new Error(`Chain ${CHAIN_ID} is not a Compound deployment. Use Pharos (688688) for Aave V3 or set GLEND_CHAIN_ID=1 or GLEND_CHAIN_ID=8453.`);
+}
+
+function getComptroller(): `0x${string}` {
+  const deployment = getDeployment();
+  if (!deployment.comptroller) {
+    throw new Error(`Comptroller address not configured for chain ${CHAIN_ID}. Market operations (mint, borrow, etc.) still work directly.`);
+  }
+  return deployment.comptroller;
+}
+
 function getMarket(symbol: string) {
-  const markets = CHAIN_ID === 1 ? ETH_DEPLOYMENT.markets : BASE_DEPLOYMENT.markets;
-  const market = markets[symbol as keyof typeof markets];
-  if (!market) throw new Error(`Unknown market: ${symbol}. Available: ${Object.keys(markets).join(", ")}`);
+  const deployment = getDeployment();
+  const market = deployment.markets[symbol as keyof typeof deployment.markets];
+  if (!market) throw new Error(`Unknown market: ${symbol}. Available: ${Object.keys(deployment.markets).join(", ")}`);
   return market;
 }
 ```
@@ -543,11 +563,13 @@ async function getMarketData(tokenAddress: `0x${string}`) {
 
 ---
 
-## Compound Protocol — Ethereum & Base
+## Compound V2 Protocol — Ethereum & Base
 
-On **Ethereum Mainnet** and **Base**, Glend uses a **Compound fork** architecture. Instead of a single Pool contract, agents interact with individual **gToken** market contracts and a **Comptroller** for collateral management.
+On **Ethereum Mainnet** and **Base**, Glend uses a **Compound V2 fork** architecture. Instead of a single Pool contract, agents interact with individual **gToken/tToken** market contracts and a **Comptroller** for collateral management.
 
-### gToken ABI (key functions)
+These ABIs match the standard Compound V2 interface — the same functions used by the Glend front-end at `glendv2.gemach.io`.
+
+### gToken / tToken ABI (Compound V2 CToken interface)
 
 ```typescript
 export const GTOKEN_ABI = [
@@ -621,9 +643,42 @@ export const GTOKEN_ABI = [
     outputs: [{ name: "", type: "uint256" }],
   },
   {
+    name: "getAccountSnapshot",
+    type: "function",
+    stateMutability: "view",
+    inputs: [{ name: "account", type: "address" }],
+    outputs: [
+      { name: "error",           type: "uint256" },
+      { name: "tokenBalance",    type: "uint256" },
+      { name: "borrowBalance",   type: "uint256" },
+      { name: "exchangeRateMantissa", type: "uint256" },
+    ],
+  },
+  {
     name: "exchangeRateCurrent",
     type: "function",
     stateMutability: "nonpayable",
+    inputs: [],
+    outputs: [{ name: "", type: "uint256" }],
+  },
+  {
+    name: "totalBorrows",
+    type: "function",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ name: "", type: "uint256" }],
+  },
+  {
+    name: "totalSupply",
+    type: "function",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ name: "", type: "uint256" }],
+  },
+  {
+    name: "getCash",
+    type: "function",
+    stateMutability: "view",
     inputs: [],
     outputs: [{ name: "", type: "uint256" }],
   },
@@ -641,10 +696,24 @@ export const GTOKEN_ABI = [
     inputs: [],
     outputs: [{ name: "", type: "uint256" }],
   },
+  {
+    name: "decimals",
+    type: "function",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ name: "", type: "uint8" }],
+  },
+  {
+    name: "symbol",
+    type: "function",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ name: "", type: "string" }],
+  },
 ] as const;
 ```
 
-### Comptroller ABI (key functions)
+### Comptroller ABI (Compound V2 Comptroller interface)
 
 ```typescript
 export const COMPTROLLER_ABI = [
@@ -683,6 +752,27 @@ export const COMPTROLLER_ABI = [
       { name: "collateralFactorMantissa", type: "uint256" },
     ],
   },
+  {
+    name: "getAllMarkets",
+    type: "function",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ name: "", type: "address[]" }],
+  },
+  {
+    name: "getAssetsIn",
+    type: "function",
+    stateMutability: "view",
+    inputs: [{ name: "account", type: "address" }],
+    outputs: [{ name: "", type: "address[]" }],
+  },
+  {
+    name: "oracle",
+    type: "function",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ name: "", type: "address" }],
+  },
 ] as const;
 ```
 
@@ -706,7 +796,7 @@ Before borrowing, the agent must enable supplied markets as collateral via the C
 
 ```typescript
 // Use the Comptroller address from the deployment config
-const COMPTROLLER = BASE_DEPLOYMENT.comptroller;
+const COMPTROLLER = getComptroller();
 
 async function enableCollateral(gTokenAddresses: `0x${string}`[]) {
   const hash = await walletClient.writeContract({
@@ -929,7 +1019,7 @@ const hash = await walletClient.writeContract(request);
    → recover USDC collateral
 ```
 
-### Ethereum & Base (Compound)
+### Ethereum & Base (Compound V2)
 
 ```
 1. compoundSupply(getMarket("gUSDC").address, "1000", 6)
@@ -967,7 +1057,7 @@ const hash = await walletClient.writeContract(request);
 | `TRANSFER_AMOUNT_EXCEEDS_BALANCE` | Insufficient token balance | Use the faucet to mint test tokens |
 | ERC-20 allowance error | `approve()` not called first | Call `approveToken()` before supply/repay |
 
-### Compound (Ethereum & Base)
+### Compound V2 (Ethereum & Base)
 
 | Error / Return Code | Likely cause | Fix |
 |---------------------|-------------|-----|
