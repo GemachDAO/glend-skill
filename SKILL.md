@@ -301,7 +301,7 @@ const PHAROS_DEPLOYMENT = {
 // (mint, borrow, repayBorrow, redeem) work without it; enterMarkets and
 // getAccountLiquidity require the Comptroller.
 const ETH_DEPLOYMENT = {
-  comptroller: undefined as `0x${string}` | undefined, // TODO: provide ETH Comptroller address
+  comptroller: undefined as `0x${string}` | undefined, // ETH Comptroller address not yet available — provide via PR or env var
   markets: {
     tUSDT:  { address: "0xfd7E506495fd921a17802Cf523279f01550BE8b6" as `0x${string}` },
     tUSDC:  { address: "0x1C5215F2fb5417BdF9D93339b0caf20222f210f3" as `0x${string}` },
@@ -350,7 +350,7 @@ function getToken(symbol: string) {
 function getDeployment() {
   if (CHAIN_ID === 1)    return ETH_DEPLOYMENT;
   if (CHAIN_ID === 8453) return BASE_DEPLOYMENT;
-  throw new Error(`Chain ${CHAIN_ID} is not a Compound deployment. Use Pharos (688688) for Aave V3 or set GLEND_CHAIN_ID=1 or GLEND_CHAIN_ID=8453.`);
+  throw new Error(`Chain ${CHAIN_ID} does not have a Compound V2 deployment. Supported: Ethereum (1), Base (8453). For Aave V3, use Pharos (688688).`);
 }
 
 function getComptroller(): `0x${string}` {
