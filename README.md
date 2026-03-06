@@ -55,17 +55,26 @@ No external repositories or private dependencies are required. All contract addr
 
 | Action | Description |
 |--------|-------------|
-| `mintTestTokens` | Get test tokens from the on-chain faucet |
-| `supplyAsset` | Deposit ERC-20 tokens to earn lending APY |
-| `borrowAsset` | Borrow tokens against existing collateral |
-| `repayDebt` | Repay variable-rate debt (partial or full) |
-| `withdrawAsset` | Reclaim supplied tokens |
-| `getAccountHealth` | Check health factor, collateral, and borrow capacity |
-| `getMarketData` | Fetch current supply/borrow APYs for any reserve |
+| `mintTestTokens` | Get test tokens from the on-chain faucet (Pharos) |
+| `supplyAsset` | Deposit ERC-20 tokens to earn lending APY (Aave V3) |
+| `borrowAsset` | Borrow tokens against existing collateral (Aave V3) |
+| `repayDebt` | Repay variable-rate debt (Aave V3) |
+| `withdrawAsset` | Reclaim supplied tokens (Aave V3) |
+| `compoundSupply` | Supply tokens to a gToken market (Compound) |
+| `compoundBorrow` | Borrow against collateral (Compound) |
+| `compoundRepay` | Repay debt (Compound) |
+| `compoundWithdraw` | Redeem gTokens for underlying (Compound) |
+| `enableCollateral` | Enable gToken markets as collateral (Compound) |
+| `getAccountHealth` | Check health factor and borrow capacity (Aave V3) |
+| `getCompoundAccountHealth` | Check liquidity and shortfall (Compound) |
+| `getMarketData` | Fetch supply/borrow APYs (Aave V3) |
+| `getCompoundMarketRates` | Fetch supply/borrow APYs (Compound) |
 
-## Pre-configured Deployment — Pharos Testnet
+## Pre-configured Deployments
 
-Agents work out of the box on **Pharos Testnet** with zero configuration:
+Agents work out of the box on all supported chains with zero configuration:
+
+### Pharos Testnet — Aave V3 (default)
 
 | Property | Value |
 |----------|-------|
@@ -74,6 +83,23 @@ Agents work out of the box on **Pharos Testnet** with zero configuration:
 | **RPC** | `https://testnet.dplabs-internal.com` |
 | **Explorer** | [testnet.pharosscan.xyz](https://testnet.pharosscan.xyz) |
 | **Tokens** | USDT, USDC, BTC |
+
+### Ethereum Mainnet — Compound fork
+
+| Property | Value |
+|----------|-------|
+| **Chain ID** | `1` |
+| **Markets** | tUSDT, tUSDC, tETH, tcbBTC, tstETH |
+| **Explorer** | [etherscan.io](https://etherscan.io) |
+
+### Base — Compound fork
+
+| Property | Value |
+|----------|-------|
+| **Chain ID** | `8453` |
+| **Comptroller** | `0x4a4c2A16b58bD63d37e999fDE50C2eBfE3182D58` |
+| **Markets** | gUSDT, gUSDC, gETH, gcbBTC |
+| **Explorer** | [basescan.org](https://basescan.org) |
 
 ## Required Environment Variables
 
@@ -91,5 +117,7 @@ Compatible with all [skills.sh](https://skills.sh) agent frameworks including Cl
 
 - Glend App: [glendv2.gemach.io](https://glendv2.gemach.io)
 - Pharos Explorer: [testnet.pharosscan.xyz](https://testnet.pharosscan.xyz)
+- Ethereum Explorer: [etherscan.io](https://etherscan.io)
+- Base Explorer: [basescan.org](https://basescan.org)
 - GemachDAO: [github.com/GemachDAO](https://github.com/GemachDAO)
 - viem docs: [viem.sh](https://viem.sh)
