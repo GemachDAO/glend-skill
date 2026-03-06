@@ -89,6 +89,7 @@ Agents work out of the box on all supported chains with zero configuration:
 | Property | Value |
 |----------|-------|
 | **Chain ID** | `1` |
+| **Comptroller** | `0x4a4c2A16b58bD63d37e999fDE50C2eBfE3182D58` |
 | **Markets** | tUSDT, tUSDC, tETH, tcbBTC, tstETH |
 | **Explorer** | [etherscan.io](https://etherscan.io) |
 

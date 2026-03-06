@@ -72,8 +72,9 @@ GLEND_CHAIN_ID=<chain_id>           # Override the default chain ID
 | **RPC URL** | `https://eth.llamarpc.com` |
 | **Block Explorer** | `https://etherscan.io` |
 | **Native Token** | ETH |
-
-> **Note:** The Comptroller (Unitroller) address for Ethereum is needed for `enterMarkets` and `getAccountLiquidity`. If the deployment matches Base, it will be provided via `GLEND_CHAIN_ID=1` once configured. In the meantime, agents can still call `mint`, `borrow`, `repayBorrow`, and `redeemUnderlying` directly on tToken markets.
+| **Comptroller (Unitroller)** | `0x4a4c2A16b58bD63d37e999fDE50C2eBfE3182D58` |
+| **PriceOracle** | `0x97f602E17ed4e765a6968f295Bdc3F6b4c1Ef93b` |
+| **CompoundLens** | `0x47bdd2Ebfd5081c72adb4238E04559576F2c9ba3` |
 
 ### Market Tokens — Ethereum Mainnet
 
@@ -297,11 +298,10 @@ const PHAROS_DEPLOYMENT = {
 };
 
 // ── Compound fork deployment (Ethereum Mainnet) ────────────────────────────
-// Note: Comptroller address for ETH not yet provided — market operations
-// (mint, borrow, repayBorrow, redeem) work without it; enterMarkets and
-// getAccountLiquidity require the Comptroller.
 const ETH_DEPLOYMENT = {
-  comptroller: undefined as `0x${string}` | undefined, // ETH Comptroller address not yet available — provide via PR or env var
+  comptroller: "0x4a4c2A16b58bD63d37e999fDE50C2eBfE3182D58" as `0x${string}`,
+  priceOracle: "0x97f602E17ed4e765a6968f295Bdc3F6b4c1Ef93b" as `0x${string}`,
+  compoundLens: "0x47bdd2Ebfd5081c72adb4238E04559576F2c9ba3" as `0x${string}`,
   markets: {
     tUSDT:  { address: "0xfd7E506495fd921a17802Cf523279f01550BE8b6" as `0x${string}` },
     tUSDC:  { address: "0x1C5215F2fb5417BdF9D93339b0caf20222f210f3" as `0x${string}` },
