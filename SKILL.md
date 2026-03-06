@@ -250,8 +250,11 @@ const GLEND_DEPLOYMENTS = {
 // ── Resolve configuration (env overrides or Pharos Testnet defaults) ───────
 const CHAIN_ID      = Number(process.env.GLEND_CHAIN_ID ?? 688688);
 const deployment    = GLEND_DEPLOYMENTS[CHAIN_ID as keyof typeof GLEND_DEPLOYMENTS];
-const chain: Chain  = deployment?.chain ?? pharosTestnet;
-const POOL_ADDRESS  = (process.env.GLEND_POOL_ADDRESS ?? deployment?.pool) as `0x${string}`;
+if (!deployment) {
+  throw new Error(`Unsupported chain ID: ${CHAIN_ID}. Supported: ${Object.keys(GLEND_DEPLOYMENTS).join(", ")}`);
+}
+const chain: Chain  = deployment.chain;
+const POOL_ADDRESS  = (process.env.GLEND_POOL_ADDRESS ?? deployment.pool) as `0x${string}`;
 const RPC_URL       = process.env.GLEND_RPC_URL ?? chain.rpcUrls.default.http[0];
 const PRIVATE_KEY   = process.env.AGENT_PRIVATE_KEY as `0x${string}`;
 
@@ -262,9 +265,9 @@ const walletClient  = createWalletClient({ account, chain, transport: http(RPC_U
 // ── Helper: look up a token by symbol ──────────────────────────────────────
 function getToken(symbol: string) {
   const tokens = deployment?.tokens;
-  if (!tokens) throw new Error(`No token registry for chain ${CHAIN_ID}`);
+  if (!tokens) throw new Error(`No token registry for chain ${CHAIN_ID}. Supported chains: ${Object.keys(GLEND_DEPLOYMENTS).join(", ")}`);
   const token = tokens[symbol as keyof typeof tokens];
-  if (!token) throw new Error(`Unknown token: ${symbol}`);
+  if (!token) throw new Error(`Unknown token: ${symbol}. Available: ${Object.keys(tokens).join(", ")}`);
   return token;
 }
 ```
