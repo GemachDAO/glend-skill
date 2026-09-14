@@ -1,6 +1,6 @@
 ---
 name: glend
-description: Agent skill for interacting with the Glend DeFi Lend & Borrow protocol by GemachDAO. Supply, borrow, repay, withdraw assets and monitor account health on EVM chains using viem.
+description: Agent skill for interacting with the Glend DeFi Lend & Borrow protocol by GemachDAO. Supply, borrow, repay, withdraw assets, monitor account health, and read market state — size, utilisation, available liquidity, USD value and APY — on EVM chains using viem.
 ---
 
 # Glend Agent Skill
@@ -73,7 +73,7 @@ GLEND_CHAIN_ID=<chain_id>           # Override the default chain ID
 | **Block Explorer** | `https://etherscan.io` |
 | **Native Token** | ETH |
 | **Comptroller (Unitroller)** | `0x4a4c2A16b58bD63d37e999fDE50C2eBfE3182D58` |
-| **PriceOracle** | `0x97f602E17ed4e765a6968f295Bdc3F6b4c1Ef93b` |
+| **PriceOracle** | `0x4485f3e5a2fc2f693bdabd26d5fe81d4d4a06867` |
 | **CompoundLens** | `0x47bdd2Ebfd5081c72adb4238E04559576F2c9ba3` |
 
 ### Market Tokens — Ethereum Mainnet
@@ -85,6 +85,15 @@ GLEND_CHAIN_ID=<chain_id>           # Override the default chain ID
 | tETH | `0x6baeCC06B2faFD651B095ab3b7882AEe6EC4369D` | 80% |
 | tcbBTC | `0xF4faD7E54bF68344906C2b60fBCDB031cdeaDB52` | 70% |
 | tstETH | `0x6e9acC9D6ea3edE1acAE7Eeb2Be2dE1F8572Bc82` | 78% |
+
+> **`getAllMarkets()` returns more markets than this table lists, and symbols repeat.**
+> On Ethereum it returns **8** entries: `tUSDT`, `tETH` and `tUSDC` are each registered
+> **twice** (an earlier deployment plus the live one). The five above are the funded markets.
+>
+> Consequence for agents: **key markets by address, never by symbol.** A symbol-keyed map
+> silently drops one of each pair, and whichever one survives is arbitrary. If you enumerate
+> with `getAllMarkets()`, filter to markets with non-zero supply (see "Get market size,
+> utilisation and available liquidity") rather than assuming every returned market is active.
 
 ### Base (Compound fork)
 
@@ -300,7 +309,7 @@ const PHAROS_DEPLOYMENT = {
 // ── Compound fork deployment (Ethereum Mainnet) ────────────────────────────
 const ETH_DEPLOYMENT = {
   comptroller: "0x4a4c2A16b58bD63d37e999fDE50C2eBfE3182D58" as `0x${string}`,
-  priceOracle: "0x97f602E17ed4e765a6968f295Bdc3F6b4c1Ef93b" as `0x${string}`,
+  priceOracle: "0x4485f3e5a2fc2f693bdabd26d5fe81d4d4a06867" as `0x${string}`,
   compoundLens: "0x47bdd2Ebfd5081c72adb4238E04559576F2c9ba3" as `0x${string}`,
   markets: {
     tUSDT:  { address: "0xfd7E506495fd921a17802Cf523279f01550BE8b6" as `0x${string}` },
@@ -655,9 +664,26 @@ export const GTOKEN_ABI = [
     ],
   },
   {
+    // NOTE: nonpayable — this ACCRUES interest, so it cannot be used with
+    // publicClient.readContract. For a read, use exchangeRateStored below.
     name: "exchangeRateCurrent",
     type: "function",
     stateMutability: "nonpayable",
+    inputs: [],
+    outputs: [{ name: "", type: "uint256" }],
+  },
+  {
+    // The read-only twin of exchangeRateCurrent. Use this one from an agent.
+    name: "exchangeRateStored",
+    type: "function",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ name: "", type: "uint256" }],
+  },
+  {
+    name: "totalReserves",
+    type: "function",
+    stateMutability: "view",
     inputs: [],
     outputs: [{ name: "", type: "uint256" }],
   },
@@ -775,6 +801,41 @@ export const COMPTROLLER_ABI = [
   },
 ] as const;
 ```
+
+### Price oracle ABI
+
+`comptroller.oracle()` returns the address; this is the function that actually prices a
+market. Needed for any USD figure.
+
+> **Read the oracle address from the comptroller; do not hardcode it.** The oracle is
+> upgradeable and the two deployments do not share one — Ethereum is
+> `0x4485f3e5…` and Base is `0x97f602e1…`. A superseded oracle usually still has code and
+> still answers `getUnderlyingPrice`, so hardcoding a stale address fails *silently* with
+> plausible-looking prices rather than reverting. The addresses in the deployment tables
+> above are for reference; `comptroller.oracle()` is the source of truth.
+
+```typescript
+export const PRICE_ORACLE_ABI = [
+  {
+    name: "getUnderlyingPrice",
+    type: "function",
+    stateMutability: "view",
+    inputs: [{ name: "gToken", type: "address" }],
+    outputs: [{ name: "", type: "uint256" }],
+  },
+] as const;
+```
+
+**The scaling is the part that catches people.** The price is returned scaled to
+`1e(36 - underlyingDecimals)`, so dividing a raw underlying amount by `1e36` already absorbs
+the token's decimals:
+
+```typescript
+usdValue = (rawUnderlyingAmount * price) / 1e36   // correct
+usdValue = (rawUnderlyingAmount / 10 ** decimals) * (price / 1e18)   // WRONG for non-18dp
+```
+
+Getting this wrong silently misprices every 6-decimal market (USDC, USDT) by 10^12.
 
 ### Compound Agent Operations
 
@@ -962,6 +1023,64 @@ async function getCompoundMarketRates(gTokenAddress: `0x${string}`) {
 }
 ```
 
+#### 9 · Get market size, utilisation and available liquidity
+
+Rates alone do not tell an agent whether a market is safe to enter. This does: market size,
+how much of it is lent out, and — critically — **how much can actually be withdrawn right now**.
+
+```typescript
+const BLOCKS_PER_YEAR = 2_628_000;
+
+async function getCompoundMarketMetrics(gTokenAddress: `0x${string}`) {
+  const [cash, borrows, reserves] = await Promise.all([
+    publicClient.readContract({ address: gTokenAddress, abi: GTOKEN_ABI, functionName: "getCash" }),
+    publicClient.readContract({ address: gTokenAddress, abi: GTOKEN_ABI, functionName: "totalBorrows" }),
+    publicClient.readContract({ address: gTokenAddress, abi: GTOKEN_ABI, functionName: "totalReserves" }),
+  ]) as [bigint, bigint, bigint];
+
+  // Compound's definition of market size. Reserves are the protocol's cut and are NOT
+  // suppliers' money, so they come out.
+  const supply = cash + borrows - reserves;
+
+  const utilisationPct = supply > 0n ? Number((borrows * 10_000n) / supply) / 100 : 0;
+  const withdrawablePct = supply > 0n ? Number((cash * 10_000n) / supply) / 100 : 0;
+
+  // USD, via the comptroller's oracle. See the scaling note under "Price oracle ABI".
+  const oracle = await publicClient.readContract({
+    address: getComptroller(), abi: COMPTROLLER_ABI, functionName: "oracle",
+  }) as `0x${string}`;
+  const price = await publicClient.readContract({
+    address: oracle, abi: PRICE_ORACLE_ABI, functionName: "getUnderlyingPrice", args: [gTokenAddress],
+  }) as bigint;
+
+  const usd = (raw: bigint) => Number(raw) * Number(price) / 1e36;
+
+  return {
+    supplyUsd: usd(supply),
+    borrowUsd: usd(borrows),
+    cashUsd: usd(cash),
+    utilisationPct,
+    withdrawablePct,
+    // Borrows exceeding supply means the market carries bad debt.
+    hasBadDebt: borrows > supply,
+  };
+}
+```
+
+**Read utilisation together with `cashUsd`, never alone.** High utilisation usually means
+healthy borrow demand — but a drained market looks *identical* on that number:
+
+| | utilisation | cash | what it means |
+|---|---|---|---|
+| Busy, healthy | 85% | meaningful | strong demand; supplying earns well |
+| **Drained** | 95–100% | ~0 | **you can supply but not withdraw** |
+| Bad debt | >100% | ~0 | borrows exceed supply |
+
+Cash is the only field that separates the first two. Before supplying, check that
+`withdrawablePct` leaves room to exit; before assuming a high APY is good news, check that
+somebody could actually redeem. `utilisationPct` above 100 is not a rounding artefact — it
+means `hasBadDebt`.
+
 ---
 
 ## Key Safety Rules for Agents
@@ -987,6 +1106,7 @@ const hash = await walletClient.writeContract(request);
 6. **Wait for receipt** before assuming a transaction succeeded.
 7. **Never log or commit private keys**; read them from environment variables only.
 8. **Check return values on Compound** — `mint`, `borrow`, `repayBorrow`, and `redeem` return `0` on success; non-zero means error.
+9. **Check available liquidity before supplying** — run `getCompoundMarketMetrics` and confirm `cashUsd` is non-trivial. A market at 100% utilisation with no cash will accept a deposit and then refuse the withdrawal; the APY on such a market looks attractive precisely because nobody can exit.
 
 ---
 
