@@ -1032,11 +1032,17 @@ how much of it is lent out, and — critically — **how much can actually be wi
 const BLOCKS_PER_YEAR = 2_628_000;
 
 async function getCompoundMarketMetrics(gTokenAddress: `0x${string}`) {
-  const [cash, borrows, reserves] = await Promise.all([
+  const [cash, borrows, reserves, gTokenSupply, exchangeRate] = await Promise.all([
     publicClient.readContract({ address: gTokenAddress, abi: GTOKEN_ABI, functionName: "getCash" }),
     publicClient.readContract({ address: gTokenAddress, abi: GTOKEN_ABI, functionName: "totalBorrows" }),
     publicClient.readContract({ address: gTokenAddress, abi: GTOKEN_ABI, functionName: "totalReserves" }),
-  ]) as [bigint, bigint, bigint];
+    publicClient.readContract({ address: gTokenAddress, abi: GTOKEN_ABI, functionName: "totalSupply" }),
+    publicClient.readContract({ address: gTokenAddress, abi: GTOKEN_ABI, functionName: "exchangeRateStored" }),
+  ]) as [bigint, bigint, bigint, bigint, bigint];
+
+  // What suppliers are owed, in underlying. The standard Compound V2 book test compares
+  // this against what the market holds plus what it is owed.
+  const supplierClaims = (gTokenSupply * exchangeRate) / 10n ** 18n;
 
   // Compound's definition of market size. Reserves are the protocol's cut and are NOT
   // suppliers' money, so they come out.
@@ -1061,8 +1067,15 @@ async function getCompoundMarketMetrics(gTokenAddress: `0x${string}`) {
     cashUsd: usd(cash),
     utilisationPct,
     withdrawablePct,
-    // Borrows exceeding supply means the market carries bad debt.
-    hasBadDebt: borrows > supply,
+    supplierClaimsUsd: usd(supplierClaims),
+    // reserves > cash: the accrued protocol cut can no longer be paid from liquid cash.
+    // A LIQUIDITY condition. It is NOT bad debt — a solvent market that has been drained
+    // trips it. (An earlier revision called this hasBadDebt; that name was wrong.)
+    reservesExceedCash: reserves > cash,
+    // Book test: supplier claims exceed cash + borrows. LIMIT: every outstanding borrow is
+    // counted as recoverable, so an uncollateralised borrow left by an exploit is booked as
+    // an asset and this stays false. false means the books balance, not "no bad debt".
+    supplierClaimsExceedAssets: supplierClaims > cash + borrows,
   };
 }
 ```
@@ -1074,12 +1087,20 @@ healthy borrow demand — but a drained market looks *identical* on that number:
 |---|---|---|---|
 | Busy, healthy | 85% | meaningful | strong demand; supplying earns well |
 | **Drained** | 95–100% | ~0 | **you can supply but not withdraw** |
-| Bad debt | >100% | ~0 | borrows exceed supply |
+| Reserves exceed cash | >100% | ~0 | still a liquidity signal, not bad debt |
 
 Cash is the only field that separates the first two. Before supplying, check that
 `withdrawablePct` leaves room to exit; before assuming a high APY is good news, check that
 somebody could actually redeem. `utilisationPct` above 100 is not a rounding artefact — it
-means `hasBadDebt`.
+means `reservesExceedCash`.
+
+**Neither flag detects exploit debt.** `supplierClaimsExceedAssets` is the standard book
+test, and it counts every outstanding borrow as recoverable. A market carrying a large
+uncollateralised borrow — the residue of an exploit — passes it, because the uncollectable
+balance is booked as an asset. Finding that requires walking every borrower's collateral
+(`getAccountSnapshot` per market against `markets()` collateral factors), which is a
+one-off analysis, not something to run on every read. Treat a `false` here as "the ledger
+balances", never as "this market is safe".
 
 ---
 
