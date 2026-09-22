@@ -1023,6 +1023,12 @@ async function getCompoundMarketRates(gTokenAddress: `0x${string}`) {
 }
 ```
 
+> **Prefer the script for numbers.** `scripts/glend_markets.py` (Python, standard library
+> only) reads every GLend V2 market on Ethereum and Base at one pinned block and prints one
+> JSON object per market: size, utilisation, withdrawable liquidity, USD values. Run
+> `python3 scripts/glend_markets.py` and quote its output rather than recomputing figures.
+> The viem example below shows the same logic for agents writing their own reads.
+
 #### 9 · Get market size, utilisation and available liquidity
 
 Rates alone do not tell an agent whether a market is safe to enter. This does: market size,
