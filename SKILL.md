@@ -1032,17 +1032,15 @@ how much of it is lent out, and — critically — **how much can actually be wi
 const BLOCKS_PER_YEAR = 2_628_000;
 
 async function getCompoundMarketMetrics(gTokenAddress: `0x${string}`) {
-  const [cash, borrows, reserves, gTokenSupply, exchangeRate] = await Promise.all([
-    publicClient.readContract({ address: gTokenAddress, abi: GTOKEN_ABI, functionName: "getCash" }),
-    publicClient.readContract({ address: gTokenAddress, abi: GTOKEN_ABI, functionName: "totalBorrows" }),
-    publicClient.readContract({ address: gTokenAddress, abi: GTOKEN_ABI, functionName: "totalReserves" }),
-    publicClient.readContract({ address: gTokenAddress, abi: GTOKEN_ABI, functionName: "totalSupply" }),
-    publicClient.readContract({ address: gTokenAddress, abi: GTOKEN_ABI, functionName: "exchangeRateStored" }),
-  ]) as [bigint, bigint, bigint, bigint, bigint];
+  // Read everything at ONE block. Separate reads at "latest" can land on different blocks
+  // (or different RPC nodes) and splice two states together.
+  const blockNumber = await publicClient.getBlockNumber();
+  const read = (functionName: string) =>
+    publicClient.readContract({ address: gTokenAddress, abi: GTOKEN_ABI, functionName, blockNumber } as any);
 
-  // What suppliers are owed, in underlying. The standard Compound V2 book test compares
-  // this against what the market holds plus what it is owed.
-  const supplierClaims = (gTokenSupply * exchangeRate) / 10n ** 18n;
+  const [cash, borrows, reserves] = await Promise.all([
+    read("getCash"), read("totalBorrows"), read("totalReserves"),
+  ]) as [bigint, bigint, bigint];
 
   // Compound's definition of market size. Reserves are the protocol's cut and are NOT
   // suppliers' money, so they come out.
@@ -1051,31 +1049,26 @@ async function getCompoundMarketMetrics(gTokenAddress: `0x${string}`) {
   const utilisationPct = supply > 0n ? Number((borrows * 10_000n) / supply) / 100 : 0;
   const withdrawablePct = supply > 0n ? Number((cash * 10_000n) / supply) / 100 : 0;
 
-  // USD, via the comptroller's oracle. See the scaling note under "Price oracle ABI".
+  // USD, via the comptroller's oracle, at the same block. See "Price oracle ABI" for scaling.
   const oracle = await publicClient.readContract({
-    address: getComptroller(), abi: COMPTROLLER_ABI, functionName: "oracle",
+    address: getComptroller(), abi: COMPTROLLER_ABI, functionName: "oracle", blockNumber,
   }) as `0x${string}`;
   const price = await publicClient.readContract({
-    address: oracle, abi: PRICE_ORACLE_ABI, functionName: "getUnderlyingPrice", args: [gTokenAddress],
+    address: oracle, abi: PRICE_ORACLE_ABI, functionName: "getUnderlyingPrice", args: [gTokenAddress], blockNumber,
   }) as bigint;
 
   const usd = (raw: bigint) => Number(raw) * Number(price) / 1e36;
 
   return {
+    blockNumber,
     supplyUsd: usd(supply),
     borrowUsd: usd(borrows),
     cashUsd: usd(cash),
     utilisationPct,
     withdrawablePct,
-    supplierClaimsUsd: usd(supplierClaims),
     // reserves > cash: the accrued protocol cut can no longer be paid from liquid cash.
-    // A LIQUIDITY condition. It is NOT bad debt — a solvent market that has been drained
-    // trips it. (An earlier revision called this hasBadDebt; that name was wrong.)
+    // A LIQUIDITY condition, not bad debt. (An earlier revision called this hasBadDebt.)
     reservesExceedCash: reserves > cash,
-    // Book test: supplier claims exceed cash + borrows. LIMIT: every outstanding borrow is
-    // counted as recoverable, so an uncollateralised borrow left by an exploit is booked as
-    // an asset and this stays false. false means the books balance, not "no bad debt".
-    supplierClaimsExceedAssets: supplierClaims > cash + borrows,
   };
 }
 ```
@@ -1094,13 +1087,15 @@ Cash is the only field that separates the first two. Before supplying, check tha
 somebody could actually redeem. `utilisationPct` above 100 is not a rounding artefact — it
 means `reservesExceedCash`.
 
-**Neither flag detects exploit debt.** `supplierClaimsExceedAssets` is the standard book
-test, and it counts every outstanding borrow as recoverable. A market carrying a large
-uncollateralised borrow — the residue of an exploit — passes it, because the uncollectable
-balance is booked as an asset. Finding that requires walking every borrower's collateral
-(`getAccountSnapshot` per market against `markets()` collateral factors), which is a
-one-off analysis, not something to run on every read. Treat a `false` here as "the ledger
-balances", never as "this market is safe".
+**No per-market number can detect bad debt — don't build one.** An uncollateralised borrow
+(the residue of an exploit, say) is booked in `totalBorrows` like any other borrow, so every
+market-level figure stays internally consistent. In particular, "what suppliers are owed"
+(`totalSupply × exchangeRateStored`) is not an independent check: in Compound V2 the exchange
+rate is *defined* as `(cash + borrows − reserves) / totalSupply`, so that product is just
+`supply` again and comparing it with `cash + borrows` can never fail. Finding bad debt means
+walking every borrower's position — `getAccountSnapshot(account)` on each market, valued with
+`markets()` collateral factors and the oracle — a one-off analysis, not a per-read check.
+For deciding whether *you* can get out, `withdrawablePct` with `utilisationPct` is the answer.
 
 ---
 
