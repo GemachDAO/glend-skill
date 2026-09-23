@@ -15,6 +15,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import math
 import json
 import sys
 import urllib.request
@@ -26,10 +27,12 @@ COMPTROLLER = "0x4a4c2A16b58bD63d37e999fDE50C2eBfE3182D58"  # same address on bo
 DEPLOYMENTS = {
     # cloudflare-eth.com / rpc.ankr.com/eth answer eth_getCode with EMPTY for live contracts;
     # mainnet.base.org rate-limits a per-market loop. None of them are used first.
-    "glend-v2-ethereum": (1, "Ethereum", ["https://ethereum-rpc.publicnode.com", "https://eth.drpc.org"]),
-    "glend-v2-base": (8453, "Base", ["https://base-rpc.publicnode.com", "https://mainnet.base.org"]),
+    "glend-v2-ethereum": (1, "Ethereum", ["https://ethereum-rpc.publicnode.com", "https://eth.drpc.org"], 12.0),
+    "glend-v2-base": (8453, "Base", ["https://base-rpc.publicnode.com", "https://mainnet.base.org"], 2.0),
 }
-CONFIRMATIONS = 3
+# Read ~30s behind head on every chain: 3 blocks on Ethereum, 15 on Base. A fixed block count
+# would be ~6s on Base, too close to head for a lagging fallback endpoint to have the block.
+CONFIRMATION_SECONDS = 30
 SEL = {"getAllMarkets": "0xb0772d0b", "oracle": "0x7dc0d1d0", "symbol": "0x95d89b41",
        "decimals": "0x313ce567", "underlying": "0x6f307dc3", "getCash": "0x3b1d21a2",
        "totalBorrows": "0x47bd3718", "totalReserves": "0x8f840ddd", "totalSupply": "0x18160ddd",
@@ -101,8 +104,8 @@ def ledger_invariant_violated(cash, borrows, reserves, ts, xr) -> bool:
 
 
 def read(key, now):
-    chain_id, chain_name, urls = DEPLOYMENTS[key]
-    block = int(rpc(urls, "eth_blockNumber", []), 16) - CONFIRMATIONS
+    chain_id, chain_name, urls, block_time = DEPLOYMENTS[key]
+    block = int(rpc(urls, "eth_blockNumber", []), 16) - max(1, math.ceil(CONFIRMATION_SECONDS / block_time))
     markets = addr_array(call(urls, COMPTROLLER, SEL["getAllMarkets"], block))
     if not markets:
         raise RuntimeError(f"{key}: getAllMarkets returned nothing")
